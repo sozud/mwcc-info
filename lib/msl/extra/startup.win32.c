@@ -1,0 +1,160 @@
+/*  Metrowerks Standard Library  */
+
+/*  $Date: 1999/05/07 18:44:44 $ 
+ *  $Revision: 1.5 $ 
+ *  $NoKeywords: $ 
+ *
+ *		Copyright © 1995-1999 Metrowerks, Inc.
+ *		All rights reserved.
+ */
+
+/*
+ *	startup.win32.c
+ *	
+ *	Routines
+ *	--------
+ * 		_CRTStartup
+ */
+
+#include "critical_regions.h"
+#include "crtl.h"
+#include <stdlib.h>
+/*
+hh 980122 Replaced <windows.h> with the following TWO includes because it is seriously
+          broken.  The following 2 includes must be carefully ordered as shown, because
+          they are broken too.
+#include <windows.h>
+*/
+#include <WINDEF.H>
+#include <WINBASE.H>
+
+/* All the environment varible strings packed together. An empty string
+ * signals the end of the list. For example:
+ * "VARA=53\0TEMP=C:\\TEMP\0\0"	*/
+char *(*environ) = 0;
+char **_Environ;		/* vss 981210 */ /* mm 990115 */
+
+//void _CRTStartup(int);          /* hh 971206  mismatched prototype */
+
+// used in abort_exit.c to get counter -- needed for DLL interface
+int *__get_MSL_init_count(void);
+int *__get_MSL_init_count(void)
+{
+	static int __MSL_init_count = 0;			/* blc 980812 */
+	return &__MSL_init_count;
+}
+
+void _CRTStartup()
+{
+    char *theEnvStrings;
+    char *origEnvStrings;		/* gcm 980828  */
+	char *CurEnvStringP;
+	static char * MyEnvStrings;
+	int  envVars = 0;		/* vss 990507 */
+
+	int 	i;
+	char 	*tmpEnv;
+
+    /* Only initialize once, since we might be called by DLLs and the main */
+    if ((*__get_MSL_init_count())++) return;	/* blc 980811 */
+
+	__init_critical_regions(); 
+ 	   
+	/* Set up stdin stdout and stderr */
+
+	_HandleTable[0] = (FileStruct *)malloc(sizeof(FileStruct));
+	if (_HandleTable[0])
+	{
+	    _HandleTable[0]->handle = GetStdHandle(STD_INPUT_HANDLE);
+	    _HandleTable[0]->translate = 0;
+	    _HandleTable[0]->append = 0;
+	}
+	_HandleTable[1] = (FileStruct *)malloc(sizeof(FileStruct));
+	if (_HandleTable[1])
+	{
+	    _HandleTable[1]->handle = GetStdHandle(STD_OUTPUT_HANDLE);
+	    _HandleTable[1]->translate = 0;
+	    _HandleTable[1]->append = 0;
+	}
+	_HandleTable[2] = (FileStruct *)malloc(sizeof(FileStruct));
+	if (_HandleTable[2])
+	{
+	    _HandleTable[2]->handle = GetStdHandle(STD_ERROR_HANDLE);
+	    _HandleTable[2]->translate = 0;
+	    _HandleTable[2]->append = 0;
+	}
+	
+	/* Next available handle is 3 */
+	
+	_HandPtr = 3;
+	
+	/* Set up the global pointer to the list of environment variable strings */
+	origEnvStrings = theEnvStrings = GetEnvironmentStrings();  /* gcm  980828 */
+	/* Skip special symbols beginning with '=' */
+	theEnvStrings = GetEnvironmentStrings();
+	while (*theEnvStrings == '=')
+	{
+    	theEnvStrings += strlen(theEnvStrings) + 1;
+	}
+
+	/* Now, find out how long it is */
+	CurEnvStringP = theEnvStrings;
+	while (*CurEnvStringP)
+	{
+	    CurEnvStringP += strlen(CurEnvStringP)+1;
+	}
+
+	/* Make a copy of it */
+	MyEnvStrings = (char *)malloc(CurEnvStringP-theEnvStrings);
+	
+	if (MyEnvStrings) {
+		memcpy(MyEnvStrings, theEnvStrings, CurEnvStringP-theEnvStrings);
+	}
+	
+	environ = &MyEnvStrings;
+	
+	/* vss  981210  Set up char array pointers to each environment string in Environ */
+	tmpEnv = *environ;
+
+	while (*tmpEnv)  /*  vss 990507  */
+	{
+		envVars++;
+		tmpEnv += strlen(tmpEnv) + 1;
+	}
+
+	_Environ = malloc((envVars+1) * sizeof(char *));  /*  get space for pointers */
+
+ 	tmpEnv = *environ;   
+	i = 0;
+
+ 	while (*tmpEnv)
+ 	{
+		_Environ[i++] = tmpEnv;
+		tmpEnv += strlen(tmpEnv) + 1;
+ 	}
+ 	
+	_Environ[i] = 0;  /*  set end of array to NULL */
+
+	/* assert(i == envVars); */
+
+	FreeEnvironmentStrings(origEnvStrings);	/* gcm 980828 */
+	
+}
+
+/* Change History
+961208 KO	Initialized the translate field in the FileStructs for stdin, stdout,
+			and stderr. Now EOLs should always be properly converted between
+			'\n's.
+961216 KO	Changed the initialization of environ. Now the strings are no longer
+			converted to uppercase (getenv doesn't rely on that so there
+			is no reason to). Made the global Initialized local to _CRTStartup.
+hh 980122   Replaced <windows.h> with the following TWO includes because it is seriously
+            broken.  The following 2 includes must be carefully ordered as shown, because
+            they are broken too.
+* mf/blc 980810   Fix to x86 runtime dll crash(when > 1 dll is attached to MSL)
+* gcm 980828 Free env strings - fixes a memory leak when loading and unloading
+*            multiple dll's.
+* vss 981210 Want the Environ string to actually be an array of pointers to environ strings
+* mm  990115 Changed Environ to _Environ
+* vss 990507 Clean up the code a bit
+*/
